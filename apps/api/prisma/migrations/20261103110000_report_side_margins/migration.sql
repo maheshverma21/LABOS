@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "ReportTemplate" ADD COLUMN     "leftMarginMm" INTEGER NOT NULL DEFAULT 11,
+ADD COLUMN     "rightMarginMm" INTEGER NOT NULL DEFAULT 11;

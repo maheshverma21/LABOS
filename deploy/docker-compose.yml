@@ -1,0 +1,109 @@
+# Everything on one server: database, Redis, API, web app, HTTPS and nightly backups.
+# Run from the deploy/ folder after filling in .env (see DEPLOY.md):
+#   docker compose up -d --build
+name: labos
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: labos
+      POSTGRES_USER: labos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labos -d labos"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # A password, and no saving to disk: everything in Redis can be rebuilt.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://labos:${POSTGRES_PASSWORD}@postgres:5432/labos?schema=public
+      DIRECT_URL: postgresql://labos:${POSTGRES_PASSWORD}@postgres:5432/labos?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+      SECRETS_KEY: ${SECRETS_KEY:?set SECRETS_KEY in .env}
+      WEB_ORIGIN: https://${DOMAIN:?set DOMAIN in .env}
+      PUBLIC_BASE_URL: https://${DOMAIN}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-LabOS <no-reply@localhost>}
+      AISENSY_API_KEY: ${AISENSY_API_KEY:-}
+      AISENSY_CAMPAIGN: ${AISENSY_CAMPAIGN:-}
+      # Caddy replaces any client-sent X-Forwarded-For with the real address, and the
+      # Next.js proxy passes it on unchanged, so the API trusts exactly one hop.
+      TRUST_PROXY: "1"
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        API_URL: http://api:4000
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+
+  # Automatic HTTPS (Let's Encrypt) in front of the web app.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [web]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Nightly database backup, kept for BACKUP_KEEP_DAYS days in ./backups.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      PGHOST: postgres
+      PGUSER: labos
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: labos
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-21}
+    volumes:
+      - ./backups:/backups
+      - ./backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

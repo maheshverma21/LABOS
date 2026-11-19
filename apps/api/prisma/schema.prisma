@@ -1,0 +1,1388 @@
+// Lab Management System: foundation schema.
+// Every tenant-owned table carries tenantId; the API scopes all queries by it
+// (see src/lib/tenant-db.ts). Postgres row-level security is the planned second layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum TenantPlan {
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+}
+
+enum BranchType {
+  LAB
+  COLLECTION_CENTRE
+}
+
+model Tenant {
+  id                  String       @id @default(uuid()) @db.Uuid
+  name                String
+  slug                String       @unique
+  plan                TenantPlan   @default(STARTER)
+  status              TenantStatus @default(TRIAL)
+  planRenewsAt        DateTime?
+  gstin               String?
+  phone               String?
+  email               String?
+  settings            Json         @default("{}")
+  /// Set by platform admins. Modules switched off for this lab (see MODULES in @lms/shared).
+  disabledModules     String[]     @default([])
+  /// Set by platform admins. Per role: { grant: [...], revoke: [...] } on top of the built-in permissions.
+  permissionOverrides Json         @default("{}")
+  /// Set by platform admins. Null means no limit.
+  maxUsers            Int?
+  maxBranches         Int?
+  /// Shown on letterheads and the lab's profile.
+  tagline             String?
+  address             String?
+  website             String?
+  /// e.g. "NABL accredited · MC-1234"
+  accreditation       String?
+  /// LabAsset id of the lab's logo.
+  logoId              String?      @db.Uuid
+  /// Bill print settings. When billCustom is off, bills use the default report letterhead.
+  billCustom          Boolean      @default(false)
+  billHeading         String       @default("BILL OF SUPPLY")
+  billSize            String       @default("A4")
+  billHeaderImageId   String?      @db.Uuid
+  billFooterImageId   String?      @db.Uuid
+  billHeaderHeightMm  Int          @default(35)
+  billFooterHeightMm  Int          @default(20)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  branches       Branch[]
+  users          User[]
+  roles          Role[]
+  userRoles      UserRole[]
+  sessions       Session[]
+  auditLogs      AuditLog[]
+  reportDoctors  ReportDoctor[]
+  outsourceLabs  OutsourceLab[]
+  orderTestFiles OrderTestFile[]
+
+  departments     Department[]
+  tests           Test[]
+  parameters      Parameter[]
+  referenceRanges ReferenceRange[]
+  panelItems      TestPanelItem[]
+  priceLists      PriceList[]
+  priceListItems  PriceListItem[]
+
+  counters Counter[]
+  doctors  Doctor[]
+  patients Patient[]
+
+  orders     Order[]
+  orderItems OrderItem[]
+  payments   Payment[]
+
+  samples    Sample[]
+  orderTests OrderTest[]
+  results    Result[]
+
+  reportLinks      ReportLink[]
+  reportDeliveries ReportDelivery[]
+
+  accounts        Account[]
+  invoices        Invoice[]
+  accountPayments AccountPayment[]
+  walletTxns      WalletTxn[]
+  accountNotes    AccountNote[]
+
+  assets          LabAsset[]
+  reportTemplates ReportTemplate[]
+
+  instruments        Instrument[]
+  instrumentMappings InstrumentMapping[]
+  instrumentMessages InstrumentMessage[]
+  interfaceKeys      InterfaceKey[]
+}
+
+model Branch {
+  id        String     @id @default(uuid()) @db.Uuid
+  tenantId  String     @db.Uuid
+  name      String
+  code      String
+  type      BranchType @default(LAB)
+  address   String?
+  phone     String?
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles UserRole[]
+  patients  Patient[]
+  orders    Order[]
+  payments  Payment[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model User {
+  id                 String    @id @default(uuid()) @db.Uuid
+  tenantId           String    @db.Uuid
+  name               String
+  email              String    @unique
+  phone              String?
+  passwordHash       String
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
+  /// Printed under the signature on reports, e.g. "MD (Pathology)".
+  qualification      String?
+  /// Medical council registration number.
+  registrationNo     String?
+  /// Set when someone else chose this password (e.g. the owner); the user must change it at next sign-in.
+  mustChangePassword Boolean   @default(false)
+  passwordChangedAt  DateTime?
+  /// LabAsset ids printed above this person's name on reports they approve.
+  signatureId        String?   @db.Uuid
+  stampId            String?   @db.Uuid
+  /// Set for a B2B client's login: the lab (account) this person orders for. Null for lab staff.
+  accountId          String?   @db.Uuid
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account        Account?        @relation(fields: [accountId], references: [id])
+  roles          UserRole[]
+  sessions       Session[]
+  passwordResets PasswordReset[]
+
+  @@index([tenantId])
+  @@index([accountId])
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  key         String
+  name        String
+  /// Permission strings from @lms/shared PERMISSIONS
+  permissions String[]
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles UserRole[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+/// A role granted to a user, optionally limited to one branch (null = all branches).
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  userId    String   @db.Uuid
+  roleId    String   @db.Uuid
+  branchId  String?  @db.Uuid
+  createdAt DateTime @default(now())
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId, branchId])
+  @@index([tenantId])
+}
+
+/// One row per signed-in device. The refresh token is "<sessionId>.<secret>";
+/// only a hash of the current secret is stored, and it rotates on every refresh.
+/// The previous hash stays valid for a few seconds so two tabs refreshing at once
+/// don't trip reuse detection.
+model Session {
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @db.Uuid
+  userId               String    @db.Uuid
+  refreshTokenHash     String
+  prevRefreshTokenHash String?
+  rotatedAt            DateTime?
+  userAgent            String?
+  ip                   String?
+  lastUsedAt           DateTime  @default(now())
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  revokedReason        String?
+  createdAt            DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
+}
+
+/// Append-only record of who did what. Never updated or deleted by the app.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityType, entityId])
+}
+
+// ---------------------------------------------------------------------------
+// Test catalog
+// ---------------------------------------------------------------------------
+
+enum ResultType {
+  NUMERIC
+  TEXT
+  OPTIONS
+}
+
+enum Sex {
+  ANY
+  MALE
+  FEMALE
+}
+
+model Department {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tests  Test[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// Something a patient can order: a single test (CBC, TSH) or a panel of tests.
+model Test {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @db.Uuid
+  code           String
+  name           String
+  departmentId   String   @db.Uuid
+  /// A panel groups other tests (e.g. a health checkup) and has no parameters of its own.
+  isPanel        Boolean  @default(false)
+  /// Key from SAMPLE_TYPES in @lms/shared
+  sampleType     String
+  container      String?
+  method         String?
+  tatHours       Int      @default(24)
+  /// Base rate in paise. Price lists can override it.
+  pricePaise     Int      @default(0)
+  /// Printed under the results on the report.
+  reportNotes    String?
+  /// Clinical interpretation printed on the report after the results.
+  interpretation String?
+  /// STANDARD (parameters) or CULTURE (organism growth + antibiotic sensitivity).
+  reportKind     String   @default("STANDARD")
+  /// Culture tests: antibiotic list, no-growth wording, footnote (see CultureConfig in @lms/shared).
+  cultureConfig  Json?
+  isActive       Boolean  @default(true)
+  /// Set when this test is sent to another lab.
+  outsourceLabId String?  @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outsourceLab   OutsourceLab?   @relation(fields: [outsourceLabId], references: [id], onDelete: SetNull)
+  department     Department      @relation(fields: [departmentId], references: [id])
+  parameters     Parameter[]
+  panelItems     TestPanelItem[] @relation("PanelItems")
+  inPanels       TestPanelItem[] @relation("PanelMember")
+  priceListItems PriceListItem[]
+  orderItems     OrderItem[]
+  orderTests     OrderTest[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, departmentId])
+}
+
+/// One reported value within a test, e.g. Haemoglobin in a CBC.
+model Parameter {
+  id         String     @id @default(uuid()) @db.Uuid
+  tenantId   String     @db.Uuid
+  testId     String     @db.Uuid
+  /// Short name used in formulas, unique within the test (e.g. HB, TCHOL).
+  code       String
+  name       String
+  unit       String?
+  /// Method this value is measured by (e.g. "Photometry"), printed on the report.
+  method     String?
+  resultType ResultType @default(NUMERIC)
+  decimals   Int        @default(1)
+  /// Allowed values for OPTIONS parameters.
+  options    String[]
+  /// Calculated parameters, e.g. "TCHOL - HDL - TG / 5". Uses other parameter codes in the same test.
+  formula    String?
+  sortOrder  Int        @default(0)
+  /// Removed parameters are deactivated, not deleted, so past results keep their meaning.
+  isActive   Boolean    @default(true)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  test    Test             @relation(fields: [testId], references: [id], onDelete: Cascade)
+  ranges  ReferenceRange[]
+  results Result[]
+
+  @@index([tenantId, testId])
+}
+
+/// Normal and critical limits for a parameter, for one sex and age band.
+model ReferenceRange {
+  id           String  @id @default(uuid()) @db.Uuid
+  tenantId     String  @db.Uuid
+  parameterId  String  @db.Uuid
+  sex          Sex     @default(ANY)
+  /// Inclusive lower age bound in days (null = from birth).
+  ageMinDays   Int?
+  /// Exclusive upper age bound in days (null = no limit).
+  ageMaxDays   Int?
+  low          Float?
+  high         Float?
+  criticalLow  Float?
+  criticalHigh Float?
+  /// Shown instead of low-high, e.g. "Negative" or "< 200 desirable".
+  text         String?
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parameter Parameter @relation(fields: [parameterId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, parameterId])
+}
+
+model TestPanelItem {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  panelId   String @db.Uuid
+  testId    String @db.Uuid
+  sortOrder Int    @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  panel  Test   @relation("PanelItems", fields: [panelId], references: [id], onDelete: Cascade)
+  test   Test   @relation("PanelMember", fields: [testId], references: [id])
+
+  @@unique([panelId, testId])
+  @@index([tenantId])
+}
+
+/// Alternative rates, e.g. for a B2B client or a camp. Tests not listed use their base price.
+enum CommissionMode {
+  PERCENT
+  AMOUNT
+}
+
+enum PriceListType {
+  DOCTOR
+  HOSPITAL
+  B2B
+}
+
+model PriceList {
+  id             String         @id @default(uuid()) @db.Uuid
+  tenantId       String         @db.Uuid
+  name           String
+  /// Who it is for: referring doctors, hospitals or B2B clients. Chosen at registration.
+  type           PriceListType  @default(B2B)
+  /// Doctor lists: whether each test's commission is a percentage or a fixed amount.
+  commissionMode CommissionMode @default(PERCENT)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items   PriceListItem[]
+  orders  Order[]
+  doctors Doctor[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model PriceListItem {
+  id                String @id @default(uuid()) @db.Uuid
+  tenantId          String @db.Uuid
+  priceListId       String @db.Uuid
+  testId            String @db.Uuid
+  pricePaise        Int
+  /// Doctor lists: commission for this test (percent of its price, or a fixed amount in paise).
+  commissionPercent Float?
+  commissionPaise   Int?
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  priceList PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  test      Test      @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@unique([priceListId, testId])
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Patients
+// ---------------------------------------------------------------------------
+
+/// Per-lab running numbers (patient UHIDs now; bills, orders and barcodes later).
+model Counter {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  key      String
+  value    Int    @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+}
+
+enum PatientSex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model Patient {
+  id                 String     @id @default(uuid()) @db.Uuid
+  tenantId           String     @db.Uuid
+  /// Lab-wide patient ID printed on bills and reports, e.g. P000123.
+  uhid               String
+  salutation         String?
+  name               String
+  sex                PatientSex
+  dob                DateTime   @db.Date
+  /// True when only the age was known and dob was worked out from it.
+  dobEstimated       Boolean    @default(false)
+  phone              String?
+  altPhone           String?
+  email              String?
+  address            String?
+  city               String?
+  pincode            String?
+  abhaNumber         String?
+  abhaAddress        String?
+  patientType        String?
+  mrn                String?
+  nationalId         String?
+  phoneBelongsTo     String?
+  organisation       String?
+  referral           String?
+  state              String?
+  district           String?
+  passportNumber     String?
+  barcode            String?
+  country            String?
+  notes              String?
+  /// When the patient (or guardian) consented to data processing (DPDP Act).
+  consentAt          DateTime?
+  registeredBranchId String?    @db.Uuid
+  createdById        String?    @db.Uuid
+  /// Registered by this B2B client (through their portal); only they and the lab see the patient.
+  accountId          String?    @db.Uuid
+  isActive           Boolean    @default(true)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  tenant           Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  registeredBranch Branch? @relation(fields: [registeredBranchId], references: [id])
+  orders           Order[]
+
+  @@unique([tenantId, uhid])
+  @@index([tenantId, phone])
+  @@index([tenantId, createdAt])
+}
+
+/// Referring doctors, picked when an order is created.
+model Doctor {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @db.Uuid
+  name              String
+  qualification     String?
+  specialty         String?
+  phone             String?
+  clinicName        String?
+  city              String?
+  /// Share of an order's net amount owed to the doctor, in percent (12.5 = 12.5%).
+  commissionPercent Float    @default(0)
+  /// Rates applied automatically when this doctor is picked at registration.
+  priceListId       String?  @db.Uuid
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  priceList PriceList? @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  orders    Order[]
+
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Orders and billing
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum DiscountType {
+  AMOUNT
+  PERCENT
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  CARD
+  ONLINE
+}
+
+enum PaymentKind {
+  PAYMENT
+  REFUND
+}
+
+/// One visit: the tests ordered for a patient, and its bill of supply.
+model Order {
+  id                String        @id @default(uuid()) @db.Uuid
+  tenantId          String        @db.Uuid
+  /// Lab number for the day, e.g. 261004-0007.
+  orderNo           String
+  /// Bill number, sequential within the financial year, e.g. B/2026-27/000123.
+  billNo            String
+  patientId         String        @db.Uuid
+  doctorId          String?       @db.Uuid
+  /// The doctor's commission rate when the order was made, and the amount it came to.
+  commissionPercent Float?
+  commissionPaise   Int           @default(0)
+  priceListId       String?       @db.Uuid
+  branchId          String?       @db.Uuid
+  status            OrderStatus   @default(ACTIVE)
+  grossPaise        Int
+  discountPaise     Int           @default(0)
+  netPaise          Int
+  /// Payments minus refunds, kept in step with the Payment rows.
+  paidPaise         Int           @default(0)
+  discountType      DiscountType?
+  /// Paise for AMOUNT, percent x 100 for PERCENT (12.5% = 1250).
+  discountValue     Int?
+  discountReason    String?
+  notes             String?
+  createdById       String?       @db.Uuid
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  cancelledAt       DateTime?
+  cancelledById     String?       @db.Uuid
+  cancelReason      String?
+  /// Billed to a B2B account instead of the patient.
+  accountId         String?       @db.Uuid
+  /// The account invoice this order is on, once invoiced.
+  invoiceId         String?       @db.Uuid
+  /// Wallet money tied to this order: held until the lab receives a tube, then taken from the wallet.
+  chargePaise       Int           @default(0)
+  chargeSettled     Boolean       @default(false)
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient          Patient          @relation(fields: [patientId], references: [id])
+  doctor           Doctor?          @relation(fields: [doctorId], references: [id])
+  priceList        PriceList?       @relation(fields: [priceListId], references: [id])
+  branch           Branch?          @relation(fields: [branchId], references: [id])
+  items            OrderItem[]
+  payments         Payment[]
+  samples          Sample[]
+  tests            OrderTest[]
+  reportLinks      ReportLink[]
+  reportDeliveries ReportDelivery[]
+  account          Account?         @relation(fields: [accountId], references: [id])
+  invoice          Invoice?         @relation(fields: [invoiceId], references: [id])
+
+  @@unique([tenantId, orderNo])
+  @@unique([tenantId, billNo])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, patientId])
+  @@index([tenantId, accountId, createdAt])
+}
+
+/// A billed line. Code, name and prices are copied so the bill never changes
+/// when the catalog does.
+model OrderItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  tenantId       String  @db.Uuid
+  orderId        String  @db.Uuid
+  testId         String  @db.Uuid
+  code           String
+  name           String
+  isPanel        Boolean @default(false)
+  basePricePaise Int
+  pricePaise     Int
+  sortOrder      Int     @default(0)
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  test   Test        @relation(fields: [testId], references: [id])
+  tests  OrderTest[]
+
+  @@index([tenantId, orderId])
+}
+
+/// Money in (PAYMENT) or out (REFUND). Never edited or deleted.
+model Payment {
+  id           String      @id @default(uuid()) @db.Uuid
+  tenantId     String      @db.Uuid
+  orderId      String      @db.Uuid
+  branchId     String?     @db.Uuid
+  kind         PaymentKind @default(PAYMENT)
+  mode         PaymentMode
+  amountPaise  Int
+  reference    String?
+  receivedById String?     @db.Uuid
+  createdAt    DateTime    @default(now())
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, orderId])
+}
+
+// ---------------------------------------------------------------------------
+// Samples and the tests run on them
+// ---------------------------------------------------------------------------
+
+enum SampleStatus {
+  PENDING
+  COLLECTED
+  RECEIVED
+  REJECTED
+  CANCELLED
+}
+
+enum OrderTestStatus {
+  AWAITING_SAMPLE
+  IN_LAB
+  ENTERED
+  SUBMITTED
+  APPROVED
+  CANCELLED
+}
+
+/// One tube or container. An order gets one per sample type; a rejected sample
+/// is replaced by a new one with the next barcode.
+model Sample {
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @db.Uuid
+  orderId           String       @db.Uuid
+  /// Lab number digits + 2-digit index, e.g. 261004000701. Printed as a barcode.
+  barcode           String
+  sampleType        String
+  container         String?
+  status            SampleStatus @default(PENDING)
+  collectedAt       DateTime?
+  collectedById     String?      @db.Uuid
+  collectedBranchId String?      @db.Uuid
+  receivedAt        DateTime?
+  receivedById      String?      @db.Uuid
+  rejectedAt        DateTime?
+  rejectedById      String?      @db.Uuid
+  rejectReason      String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tests  OrderTest[]
+
+  @@index([tenantId, barcode])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, orderId])
+}
+
+/// A single test to run for an order: the billed tests, with panels expanded into
+/// their member tests. Results hang off this.
+model OrderTest {
+  id             String          @id @default(uuid()) @db.Uuid
+  tenantId       String          @db.Uuid
+  orderId        String          @db.Uuid
+  orderItemId    String          @db.Uuid
+  testId         String          @db.Uuid
+  sampleId       String?         @db.Uuid
+  code           String
+  name           String
+  departmentName String
+  sampleType     String
+  sortOrder      Int             @default(0)
+  status         OrderTestStatus @default(AWAITING_SAMPLE)
+  /// Printed under the test on the report.
+  remarks        String?
+  /// Why a pathologist sent it back for checking.
+  sendBackNote   String?
+  enteredById    String?         @db.Uuid
+  enteredAt      DateTime?
+  submittedAt    DateTime?
+  approvedById   String?         @db.Uuid
+  approvedAt     DateTime?
+  /// Set when an approved test is reopened; the report then says "Amended".
+  amendedAt      DateTime?
+  /// Culture tests: growth / no growth, organisms and sensitivities (see CultureResult in @lms/shared).
+  culture        Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem OrderItem      @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  test      Test           @relation(fields: [testId], references: [id])
+  sample    Sample?        @relation(fields: [sampleId], references: [id])
+  results   Result[]
+  file      OrderTestFile?
+
+  @@index([tenantId, orderId])
+  @@index([tenantId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Results
+// ---------------------------------------------------------------------------
+
+enum ResultFlag {
+  CRITICAL_LOW
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL_HIGH
+}
+
+/// One reported value. Name, unit and the reference range are copied at entry,
+/// so a report reads the same even after the catalog changes.
+model Result {
+  id           String      @id @default(uuid()) @db.Uuid
+  tenantId     String      @db.Uuid
+  orderTestId  String      @db.Uuid
+  parameterId  String      @db.Uuid
+  code         String
+  name         String
+  unit         String?
+  resultType   ResultType
+  decimals     Int
+  /// As typed (numbers are normalised, e.g. "13.4").
+  value        String?
+  numericValue Float?
+  flag         ResultFlag?
+  isCalculated Boolean     @default(false)
+  refLow       Float?
+  refHigh      Float?
+  refCritLow   Float?
+  refCritHigh  Float?
+  refText      String?
+  sortOrder    Int         @default(0)
+  enteredById  String?     @db.Uuid
+  /// The analyzer that sent this value (its name), when it wasn't typed in.
+  source       String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderTest OrderTest @relation(fields: [orderTestId], references: [id], onDelete: Cascade)
+  parameter Parameter @relation(fields: [parameterId], references: [id])
+
+  @@unique([orderTestId, parameterId])
+  @@index([tenantId, parameterId])
+}
+
+// ---------------------------------------------------------------------------
+// Reports
+// ---------------------------------------------------------------------------
+
+/// A patient-facing link to an order's report. Anyone with the token can read it until it expires.
+model ReportLink {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @db.Uuid
+  orderId     String    @db.Uuid
+  token       String    @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, orderId])
+}
+
+enum DeliveryChannel {
+  WHATSAPP
+  LINK
+  /// Printed and handed to the patient or their representative.
+  COUNTER
+}
+
+enum DeliveryStatus {
+  SENT
+  FAILED
+}
+
+/// Every attempt to send a report, kept for the order's history.
+model ReportDelivery {
+  id          String          @id @default(uuid()) @db.Uuid
+  tenantId    String          @db.Uuid
+  orderId     String          @db.Uuid
+  channel     DeliveryChannel
+  to          String?
+  status      DeliveryStatus
+  error       String?
+  providerRef String?
+  sentById    String?         @db.Uuid
+  createdAt   DateTime        @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, orderId])
+  @@index([tenantId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Platform administration: the people who run the SaaS, not lab staff.
+// These tables have no tenantId; only the /api/admin routes touch them.
+// ---------------------------------------------------------------------------
+
+enum PlatformRole {
+  /// Everything, including changing subscriptions and disabling users.
+  SUPER_ADMIN
+  /// Read-only: look up labs and users to help with support.
+  SUPPORT
+}
+
+model PlatformAdmin {
+  id                 String       @id @default(uuid()) @db.Uuid
+  name               String
+  email              String       @unique
+  passwordHash       String
+  role               PlatformRole @default(SUPPORT)
+  isActive           Boolean      @default(true)
+  lastLoginAt        DateTime?
+  /// Authenticator-app secret, encrypted (lib/secrets.ts). Two-step sign-in is on once totpEnabledAt is set.
+  totpSecretEnc      String?
+  totpEnabledAt      DateTime?
+  /// The last 30-second step used, so a code can't be replayed.
+  totpLastStep       Int?
+  /// Hashes of one-time recovery codes for a lost phone.
+  recoveryCodeHashes String[]     @default([])
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  sessions PlatformSession[]
+}
+
+model PlatformSession {
+  id                   String    @id @default(uuid()) @db.Uuid
+  adminId              String    @db.Uuid
+  refreshTokenHash     String
+  prevRefreshTokenHash String?
+  rotatedAt            DateTime?
+  userAgent            String?
+  ip                   String?
+  lastUsedAt           DateTime  @default(now())
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  createdAt            DateTime  @default(now())
+
+  admin PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+}
+
+/// What platform admins did. Append-only.
+model PlatformAuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  adminId    String?  @db.Uuid
+  action     String
+  /// The lab affected, if any.
+  tenantId   String?  @db.Uuid
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([tenantId, createdAt])
+}
+
+/// A "forgot password" link. Only the hash of its secret is stored; it works once, for 30 minutes.
+model PasswordReset {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  tokenHash   String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  requestedIp String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// B2B accounts: hospitals, clinics, corporates and labs billed on credit
+// ---------------------------------------------------------------------------
+
+enum AccountType {
+  HOSPITAL
+  CLINIC
+  CORPORATE
+  LAB
+  OTHER
+}
+
+model Account {
+  id               String      @id @default(uuid()) @db.Uuid
+  tenantId         String      @db.Uuid
+  /// Short code typed at billing, e.g. "CITYHOSP".
+  code             String
+  name             String
+  type             AccountType @default(HOSPITAL)
+  contactName      String?
+  phone            String?
+  email            String?
+  address          String?
+  gstin            String?
+  /// Their rates. Without one, base rates apply.
+  priceListId      String?     @db.Uuid
+  /// How far below zero the net balance (wallet minus holds) may go. Null means no limit.
+  creditLimitPaise Int?
+  /// Days after the invoice date that payment is due.
+  paymentTermsDays Int         @default(30)
+  /// Prepaid money. Negative when the lab has used its credit.
+  walletPaise      Int         @default(0)
+  /// Reserved for orders the lab hasn't received a tube for yet.
+  holdPaise        Int         @default(0)
+  /// Percent off base rates, for tests the price list says nothing about.
+  discountPercent  Float       @default(0)
+  city             String?
+  /// Switches, payment methods and bank details (see labSettingsSchema in @lms/shared).
+  settings         Json        @default("{}")
+  notes            String?
+  isActive         Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders      Order[]
+  invoices    Invoice[]
+  payments    AccountPayment[]
+  walletTxns  WalletTxn[]
+  creditNotes AccountNote[]
+  users       User[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+enum InvoiceStatus {
+  /// Sent; paid in part or not at all.
+  ISSUED
+  PAID
+  /// Withdrawn; its orders can go on another invoice.
+  VOID
+}
+
+/// A statement of an account's orders for a period.
+model Invoice {
+  id          String        @id @default(uuid()) @db.Uuid
+  tenantId    String        @db.Uuid
+  accountId   String        @db.Uuid
+  /// INV/2026-27/000012
+  invoiceNo   String
+  periodFrom  DateTime      @db.Date
+  periodTo    DateTime      @db.Date
+  totalPaise  Int
+  paidPaise   Int           @default(0)
+  status      InvoiceStatus @default(ISSUED)
+  issuedAt    DateTime      @default(now())
+  dueDate     DateTime      @db.Date
+  voidedAt    DateTime?
+  voidReason  String?
+  createdById String?       @db.Uuid
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+  orders  Order[]
+
+  @@unique([tenantId, invoiceNo])
+  @@index([tenantId, accountId])
+}
+
+/// Money received from an account, applied to its oldest unpaid invoices.
+model AccountPayment {
+  id           String      @id @default(uuid()) @db.Uuid
+  tenantId     String      @db.Uuid
+  accountId    String      @db.Uuid
+  branchId     String?     @db.Uuid
+  mode         PaymentMode
+  amountPaise  Int
+  reference    String?
+  /// [{ invoiceId, invoiceNo, amountPaise }]
+  allocations  Json        @default("[]")
+  receivedById String?     @db.Uuid
+  createdAt    DateTime    @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, accountId])
+}
+
+enum WalletTxnKind {
+  /// Balance carried over when the wallet was introduced.
+  OPENING
+  /// Money added by the lab.
+  TOPUP
+  /// An order taken from the wallet.
+  ORDER
+  /// An order cancelled: its money returns.
+  REFUND
+  CREDIT_NOTE
+  DEBIT_NOTE
+}
+
+/// Every movement of a lab's wallet. Positive adds money, negative takes it.
+model WalletTxn {
+  id                String        @id @default(uuid()) @db.Uuid
+  tenantId          String        @db.Uuid
+  accountId         String        @db.Uuid
+  kind              WalletTxnKind
+  amountPaise       Int
+  /// The wallet after this entry, so a ledger reads without adding up.
+  balanceAfterPaise Int
+  mode              PaymentMode?
+  reference         String?
+  narration         String?
+  orderId           String?       @db.Uuid
+  noteId            String?       @db.Uuid
+  createdById       String?       @db.Uuid
+  createdAt         DateTime      @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, accountId, createdAt])
+}
+
+enum NoteKind {
+  CREDIT
+  DEBIT
+}
+
+/// A credit or debit note against a lab's wallet (CN/2026-27/000001, DN/...).
+model AccountNote {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  accountId   String   @db.Uuid
+  kind        NoteKind
+  noteNo      String
+  amountPaise Int
+  reason      String
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([tenantId, noteNo])
+  @@index([tenantId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Branding: images and report letterheads
+// ---------------------------------------------------------------------------
+
+enum AssetKind {
+  LOGO
+  HEADER
+  FOOTER
+  SIGNATURE
+  STAMP
+  BACKGROUND
+  DOCTOR_SIGNATURE
+}
+
+/// An uploaded image (PNG or JPEG). Kept in the database so backups include it.
+model LabAsset {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @db.Uuid
+  kind        AssetKind
+  mime        String
+  width       Int
+  height      Int
+  data        Bytes
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+enum LetterheadStyle {
+  /// Drawn from the lab profile: logo, name, address, accent colour.
+  BUILT_IN
+  /// Uploaded header and footer images.
+  IMAGE
+  /// Blank space at the top and bottom, for paper with a printed letterhead.
+  PREPRINTED
+}
+
+/// How reports look. A lab can keep several (e.g. digital, pre-printed paper, a partner's letterhead).
+/// Another lab that tests are sent to.
+model OutsourceLab {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tests  Test[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// The report file (PDF or photo) that came back from an outsourced lab for one test.
+model OrderTestFile {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @db.Uuid
+  orderTestId   String   @unique @db.Uuid
+  name          String
+  mime          String
+  size          Int
+  data          Bytes
+  /// Print the outsource header and footer (Report Details) over this file's pages.
+  addLetterhead Boolean  @default(false)
+  uploadedById  String?  @db.Uuid
+  createdAt     DateTime @default(now())
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderTest OrderTest @relation(fields: [orderTestId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+/// A doctor whose name, degree and signature print on reports, with their own layout.
+model ReportDoctor {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @db.Uuid
+  name              String
+  degree            String?
+  signatureId       String?  @db.Uuid
+  hideName          Boolean  @default(false)
+  /// 0 (left) to 100 (right) across the page; older rows hold LEFT, MIDDLE or RIGHT.
+  position          String   @default("RIGHT")
+  nameFontSize      Int      @default(12)
+  degreeFontSize    Int      @default(9)
+  /// Height of the signature image, in points.
+  signatureSize     Int      @default(41)
+  /// Space between the signature and the name.
+  spacing           Float    @default(1)
+  nameDegreeSpacing Float    @default(1.5)
+  /// LEFT, CENTER or RIGHT, for the text inside the block.
+  alignment         String   @default("RIGHT")
+  /// FIXED prints on every report; SELECT only when picked at print time.
+  mode              String   @default("FIXED")
+  /// Printed once after the last test instead of at the bottom of every page.
+  endOfReport       Boolean  @default(false)
+  /// Department names this signature applies to. Empty means all.
+  departments       String[] @default([])
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model ReportTemplate {
+  id                      String          @id @default(uuid()) @db.Uuid
+  tenantId                String          @db.Uuid
+  name                    String
+  isDefault               Boolean         @default(false)
+  style                   LetterheadStyle @default(BUILT_IN)
+  headerImageId           String?         @db.Uuid
+  footerImageId           String?         @db.Uuid
+  /// Header and footer used when printing a report for outsourced work.
+  /// Full A4 page image printed behind every page; header/footer heights then become the margins.
+  backgroundImageId       String?         @db.Uuid
+  /// Millimetres of blank space at the left and right edge of every page.
+  leftMarginMm            Int             @default(11)
+  rightMarginMm           Int             @default(11)
+  outsourceHeaderImageId  String?         @db.Uuid
+  outsourceFooterImageId  String?         @db.Uuid
+  outsourceFooterHeightMm Int             @default(20)
+  /// Millimetres. Header and footer image height, or blank space on pre-printed paper.
+  headerHeightMm          Int             @default(35)
+  footerHeightMm          Int             @default(20)
+  /// Set for a B2B lab's own letterhead: it is used for that lab's reports and kept out of the lab's template list.
+  accountId               String?         @db.Uuid
+  accentColor             String          @default("#2D6A9F")
+  /// Font the report prints in (an id from REPORT_FONTS).
+  fontFamily              String          @default("helvetica")
+  /// Colours for values below and above the reference range.
+  lowColor                String          @default("#1D4ED8")
+  highColor               String          @default("#B91C1C")
+  showLogo                Boolean         @default(true)
+  showSignatures          Boolean         @default(true)
+  showQr                  Boolean         @default(true)
+  footerNote              String?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([accountId])
+}
+
+// ---------------------------------------------------------------------------
+// Analyzers: results sent by lab machines (ASTM or HL7 over the network)
+// ---------------------------------------------------------------------------
+
+enum InstrumentProtocol {
+  ASTM
+  HL7
+}
+
+enum InstrumentConnection {
+  /// The analyzer connects to the interface PC (the usual "LIS host" setting).
+  LISTEN
+  /// The interface PC connects to the analyzer's IP and port.
+  CONNECT
+}
+
+/// A lab machine that sends results.
+model Instrument {
+  id         String               @id @default(uuid()) @db.Uuid
+  tenantId   String               @db.Uuid
+  name       String
+  /// Make and model, e.g. "Sysmex XN-330".
+  model      String?
+  protocol   InstrumentProtocol   @default(ASTM)
+  connection InstrumentConnection @default(LISTEN)
+  /// The analyzer's address, for CONNECT.
+  host       String?
+  port       Int
+  isActive   Boolean              @default(true)
+  lastSeenAt DateTime?
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  tenant   Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  mappings InstrumentMapping[]
+  messages InstrumentMessage[]
+
+  @@index([tenantId])
+}
+
+/// Which LabOS test parameter an analyzer's test code fills, e.g. "HGB" -> Haemoglobin.
+model InstrumentMapping {
+  id           String @id @default(uuid()) @db.Uuid
+  tenantId     String @db.Uuid
+  instrumentId String @db.Uuid
+  analyzerCode String
+  parameterId  String @db.Uuid
+  /// Multiplies the machine's value, e.g. 0.001 to turn /uL into 10^3/uL. Null leaves it as sent.
+  factor       Float?
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([instrumentId, analyzerCode])
+  @@index([tenantId])
+}
+
+enum InstrumentMessageStatus {
+  /// Every value went into a test.
+  APPLIED
+  /// Some values went in; the rest are listed with the reason.
+  PARTIAL
+  /// Nothing went in (unknown barcode, no matching tests, test already submitted...).
+  NOT_APPLIED
+  /// The message couldn't be read.
+  ERROR
+}
+
+/// Every message an analyzer sent, as received, with what happened to each value.
+model InstrumentMessage {
+  id           String                  @id @default(uuid()) @db.Uuid
+  tenantId     String                  @db.Uuid
+  instrumentId String                  @db.Uuid
+  /// The sample ID the analyzer sent (normally the tube's barcode).
+  sampleId     String?
+  orderId      String?                 @db.Uuid
+  status       InstrumentMessageStatus
+  /// Per value: { code, value, unit, outcome, test?, parameter? }.
+  detail       Json                    @default("[]")
+  summary      String?
+  raw          String
+  createdAt    DateTime                @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, instrumentId, createdAt])
+}
+
+/// A key the interface program uses to send results for one lab. Only its hash is kept.
+model InterfaceKey {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @db.Uuid
+  name        String
+  /// First characters, to recognise it in the list.
+  prefix      String
+  keyHash     String    @unique
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}

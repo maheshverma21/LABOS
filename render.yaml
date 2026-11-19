@@ -1,0 +1,51 @@
+# Render Blueprint: creates the web service, PostgreSQL and Redis (Key Value) from this repo.
+# Render dashboard > New > Blueprint > pick your GitHub repo.
+# After the first deploy, set WEB_ORIGIN to your service URL (see DEPLOY-RENDER.md).
+services:
+  - type: web
+    name: labos
+    runtime: node
+    plan: starter            # use "free" to try it out (sleeps when idle, 512 MB RAM may be too small to build)
+    region: singapore
+    buildCommand: npm ci --no-audit --no-fund && npm run build
+    startCommand: node hostinger/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: API_URL
+        value: http://127.0.0.1:4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: labos-db
+          property: connectionString
+      - key: DIRECT_URL
+        fromDatabase:
+          name: labos-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: labos-redis
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: SECRETS_KEY
+        generateValue: true
+      - key: WEB_ORIGIN
+        sync: false           # you enter https://<your-service>.onrender.com after the first deploy
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        value: LabOS <no-reply@localhost>
+
+  - type: keyvalue
+    name: labos-redis
+    plan: free
+    region: singapore
+    ipAllowList: []           # internal connections only
+
+databases:
+  - name: labos-db
+    plan: basic-256mb
+    region: singapore

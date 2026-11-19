@@ -1,0 +1,40 @@
+# The Express API. Built from the repository root:
+#   docker build -f deploy/Dockerfile.api -t labos-api .
+FROM node:22-bookworm-slim AS build
+# Prisma needs OpenSSL.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+
+# Dependencies first, so code changes don't reinstall them.
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY packages/shared/package.json packages/shared/
+RUN npm ci --workspace api --include-workspace-root --ignore-scripts
+
+COPY packages/shared packages/shared
+COPY apps/api apps/api
+RUN cd apps/api && npx prisma generate && npm run build
+# npm may place some packages here instead of the root node_modules.
+RUN mkdir -p apps/api/node_modules
+
+FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app/node_modules node_modules
+COPY --from=build /app/apps/api/node_modules apps/api/node_modules
+COPY --from=build /app/packages/shared packages/shared
+COPY --from=build /app/apps/api/package.json apps/api/package.json
+COPY --from=build /app/apps/api/prisma apps/api/prisma
+# scripts/ (and the src/ it imports) are for one-off commands like creating the first admin.
+COPY --from=build /app/apps/api/scripts apps/api/scripts
+COPY --from=build /app/apps/api/src apps/api/src
+COPY --from=build /app/apps/api/dist apps/api/dist
+COPY --from=build /app/apps/api/tsconfig.json apps/api/tsconfig.json
+COPY deploy/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
+RUN chmod +x /usr/local/bin/api-entrypoint.sh
+WORKDIR /app/apps/api
+USER node
+EXPOSE 4000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s CMD node -e "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+ENTRYPOINT ["api-entrypoint.sh"]

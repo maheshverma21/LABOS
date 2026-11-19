@@ -1,0 +1,34 @@
+{
+  "name": "lms",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "start": "node hostinger/server.js",
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w api\" \"npm run dev -w web\"",
+    "build": "npm run build -w api && npm run build -w web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:migrate": "npm run db:migrate -w api",
+    "db:seed": "npm run db:seed -w api",
+    "db:studio": "npm run db:studio -w api",
+    "test:api": "node tools/test-stack/run.mjs",
+    "dev:local": "node tools/test-stack/dev.mjs",
+    "start:local": "node tools/local/start-local.mjs",
+    "package": "node tools/local/package.mjs",
+    "admin:local": "node tools/local/create-admin.mjs",
+    "dev:stop": "node -e \"require('fs').writeFileSync('.dev-stop', '')\"",
+    "interface": "node tools/interface/interface.mjs",
+    "interface:simulate": "node tools/interface/simulate.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

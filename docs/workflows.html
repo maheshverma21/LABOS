@@ -1,0 +1,454 @@
+<meta charset="utf-8">
+<title>LabOS Workflows</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+  /* Layout: one reading column; each workflow is a figure with its diagram, then what it shows and how it was tested. */
+  :root {
+    --bg: #f4f6f9;
+    --panel: #ffffff;
+    --ink: #17283b;
+    --ink-2: #4c5d70;
+    --line: #c9d4e0;
+    --accent: #2d6a9f;
+    --accent-soft: #e3ebf3;
+    --ok: #1f7a4d;
+    --ok-soft: #e2f3ea;
+    --warn: #9a6200;
+    --bad: #b42318;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-display: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1b2a; --panel: #142338; --ink: #e6edf5; --ink-2: #a3b3c5; --line: #2f4561;
+      --accent: #6aa6dc; --accent-soft: #1b3350; --ok: #5cc493; --ok-soft: #133628; --warn: #e3b25a; --bad: #f08a80;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1b2a; --panel: #142338; --ink: #e6edf5; --ink-2: #a3b3c5; --line: #2f4561;
+    --accent: #6aa6dc; --accent-soft: #1b3350; --ok: #5cc493; --ok-soft: #133628; --warn: #e3b25a; --bad: #f08a80;
+    color-scheme: dark;
+  }
+
+  body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--font-body); }
+  .page { max-width: 1000px; margin: 0 auto; padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+  h1, h2 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+  h1 { font-size: clamp(30px, 5vw, 42px); line-height: 1.1; }
+  h2 { font-size: 24px; line-height: 1.2; }
+  p { margin: 0; max-width: 68ch; }
+  .lede { color: var(--ink-2); font-size: 16px; }
+  .eyebrow { font: 500 12px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+  header { display: grid; gap: 12px; }
+  nav ol { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+  nav a { display: inline-block; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink); text-decoration: none; font-size: 13px; background: var(--panel); }
+  nav a:hover, nav a:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+
+  /* Test results */
+  .results { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: grid; gap: 14px; }
+  .results h2 { font-size: 20px; }
+  .total { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: baseline; }
+  .total strong { font: 600 32px/1 var(--font-display); color: var(--ok); font-variant-numeric: tabular-nums; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 500 12px/1.3 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font: 500 12px/1.6 var(--font-mono); background: var(--ok-soft); color: var(--ok); white-space: nowrap; }
+
+  /* Workflows */
+  section.flow { display: grid; gap: 14px; scroll-margin-top: 16px; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 10px; }
+  .diagram { overflow-x: auto; }
+  .diagram svg { display: block; width: 100%; min-width: 640px; height: auto; color: var(--ink); }
+  figcaption { color: var(--ink-2); font-size: 14px; }
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 28px; }
+  .notes > div { min-width: 0; }
+  .notes h3 { margin: 0 0 4px; font: 500 12px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
+  .notes ul { margin: 0; padding-left: 18px; }
+  .notes li { margin: 2px 0; }
+  code { font-family: var(--font-mono); font-size: 0.92em; }
+
+  /* Diagram parts (inline SVG, themed through the page tokens) */
+  .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+  .box.key { stroke: var(--accent); fill: var(--accent-soft); }
+  .box.done { stroke: var(--ok); fill: var(--ok-soft); }
+  .box.muted { stroke-dasharray: 4 3; }
+  .t { fill: var(--ink); font: 600 13px var(--font-body); }
+  .s { fill: var(--ink-2); font: 400 11px var(--font-body); }
+  .m { fill: var(--ink-2); font: 400 11px var(--font-mono); }
+  .role { fill: var(--accent); font: 500 10px var(--font-mono); letter-spacing: 0.08em; }
+  .state { fill: var(--ink); font: 500 12px var(--font-mono); letter-spacing: 0.02em; }
+  .edge { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+  .edge.key { stroke: var(--accent); stroke-width: 2; }
+  .edge.dash { stroke-dasharray: 5 4; }
+  .el { fill: var(--ink-2); font: 400 11px var(--font-body); }
+  .el.key { fill: var(--accent); font-weight: 500; }
+  .tip { fill: var(--ink-2); }
+  .tip.key { fill: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) { nav a { transition: border-color .15s, color .15s; } }
+</style>
+
+<div class="page">
+  <header>
+    <span class="eyebrow">LabOS · how it works</span>
+    <h1>LabOS Workflows</h1>
+    <p class="lede">Each diagram below follows one real workflow through the app: who does each step, which states things move through, and where it can loop back. Under each one is what the automated tests check for it.</p>
+    <nav aria-label="Workflows">
+      <ol>
+        <li><a href="#journey">Patient journey</a></li>
+        <li><a href="#samples">Tubes</a></li>
+        <li><a href="#results">Results</a></li>
+        <li><a href="#reports">Reports</a></li>
+        <li><a href="#b2b">B2B billing</a></li>
+        <li><a href="#signin">Sign-in</a></li>
+        <li><a href="#access">Permissions</a></li>
+        <li><a href="#admin">Platform admin</a></li>
+      </ol>
+    </nav>
+  </header>
+
+  <section class="results" aria-labelledby="results-h">
+    <h2 id="results-h">Test run, 31 October 2026</h2>
+    <div class="total"><strong>582 / 582</strong><span>automated checks passed against the production build, through the web app's proxy. Typecheck and lint are clean.</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Suite</th><th>What it covers</th><th class="num">Checks</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Accounts</td><td>B2B rates, credit limit, invoices, payments, voiding</td><td class="num">52</td><td><span class="pill">pass</span></td></tr>
+          <tr><td>Admin</td><td>Two-step sign-in, subscriptions, lab access, user roles and passwords</td><td class="num">115</td><td><span class="pill">pass</span></td></tr>
+          <tr><td>Passwords</td><td>Reset links, changing passwords, owner controls over staff</td><td class="num">51</td><td><span class="pill">pass</span></td></tr>
+          <tr><td>Reports</td><td>PDF, patient link, WhatsApp through AiSensy</td><td class="num">48</td><td><span class="pill">pass</span></td></tr>
+          <tr><td>Results</td><td>Entry, flags, formulas, approval, reopening</td><td class="num">44</td><td><span class="pill">pass</span></td></tr>
+          <tr><td>Samples</td><td>Collecting, receiving, rejecting, replacement tubes</td><td class="num">35</td><td><span class="pill">pass</span></td></tr>
+          <tr><td>Security sweep</td><td>Every route signed out, every role, bad input, other labs' data, headers</td><td class="num">183</td><td><span class="pill">pass</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede" style="font-size:14px">The same suites were also run against the development server. One admin check, signing in with a recovery code, failed once there. It passed on its own and in the production run, so it looks intermittent; the test now records the full sign-in response so the next failure shows its cause.</p>
+  </section>
+
+  <!-- 1. Patient journey -->
+  <section class="flow" id="journey">
+    <span class="eyebrow">Workflow 1</span>
+    <h2>Patient journey, counter to report</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 900 300" role="img" aria-label="Eight steps: register patient, create order and bill, print tube labels, collect sample, receive in lab, enter results, approve, deliver report. The tube travels from the counter to the lab between steps four and five.">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <!-- row 1 -->
+          <rect class="box" x="20" y="40" width="180" height="70" rx="8"/>
+          <text class="role" x="34" y="60">FRONT DESK</text><text class="t" x="34" y="80">Register patient</text><text class="m" x="34" y="98">ID P000123 · consent</text>
+          <rect class="box" x="245" y="40" width="180" height="70" rx="8"/>
+          <text class="role" x="259" y="60">FRONT DESK</text><text class="t" x="259" y="80">Create order &amp; bill</text><text class="m" x="259" y="98">B/2026-27/000123</text>
+          <rect class="box" x="470" y="40" width="180" height="70" rx="8"/>
+          <text class="role" x="484" y="60">FRONT DESK</text><text class="t" x="484" y="80">Print tube labels</text><text class="s" x="484" y="98">one tube per sample type</text>
+          <rect class="box" x="695" y="40" width="180" height="70" rx="8"/>
+          <text class="role" x="709" y="60">PHLEBOTOMIST</text><text class="t" x="709" y="80">Collect sample</text><text class="s" x="709" y="98">at the counter</text>
+          <line class="edge" x1="200" y1="75" x2="243" y2="75" marker-end="url(#a1)"/>
+          <line class="edge" x1="425" y1="75" x2="468" y2="75" marker-end="url(#a1)"/>
+          <line class="edge" x1="650" y1="75" x2="693" y2="75" marker-end="url(#a1)"/>
+          <!-- tube travels -->
+          <path class="edge key" d="M785,110 V150 H110 V188" marker-end="url(#a1)"/>
+          <text class="el key" x="448" y="143" text-anchor="middle">the tube travels to the lab, identified by its barcode 261004000701</text>
+          <!-- row 2 -->
+          <rect class="box" x="20" y="190" width="180" height="70" rx="8"/>
+          <text class="role" x="34" y="210">TECHNICIAN</text><text class="t" x="34" y="230">Receive in lab</text><text class="s" x="34" y="248">scan the barcode</text>
+          <rect class="box" x="245" y="190" width="180" height="70" rx="8"/>
+          <text class="role" x="259" y="210">TECHNICIAN</text><text class="t" x="259" y="230">Enter results</text><text class="s" x="259" y="248">flags, formulas, previous</text>
+          <rect class="box" x="470" y="190" width="180" height="70" rx="8"/>
+          <text class="role" x="484" y="210">PATHOLOGIST</text><text class="t" x="484" y="230">Approve</text><text class="s" x="484" y="248">or send back with a note</text>
+          <rect class="box done" x="695" y="190" width="180" height="70" rx="8"/>
+          <text class="role" x="709" y="210">FRONT DESK</text><text class="t" x="709" y="230">Deliver report</text><text class="s" x="709" y="248">print, link or WhatsApp</text>
+          <line class="edge" x1="200" y1="225" x2="243" y2="225" marker-end="url(#a1)"/>
+          <line class="edge" x1="425" y1="225" x2="468" y2="225" marker-end="url(#a1)"/>
+          <line class="edge" x1="650" y1="225" x2="693" y2="225" marker-end="url(#a1)"/>
+          <text class="el" x="222" y="284" text-anchor="middle">in the lab</text>
+          <text class="el" x="447" y="284" text-anchor="middle">submitted</text>
+          <text class="el" x="672" y="284" text-anchor="middle">approved</text>
+        </svg>
+      </div>
+      <figcaption>One visit from start to finish. Each step belongs to one role, and the app only shows each person the steps their role allows.</figcaption>
+    </figure>
+    <div class="notes">
+      <div><h3>Along the way</h3><ul>
+        <li>Lab numbers restart each day (<code>261004-0007</code>); bill numbers run through the financial year.</li>
+        <li>Payment can be split across cash, UPI and card, or billed to a B2B account.</li>
+        <li>Panels expand into their tests, and a test can't be billed twice.</li>
+      </ul></div>
+      <div><h3>Tested</h3><ul>
+        <li>Every step above through the API, for each role.</li>
+        <li>Discounts need a manager; cancelling refunds and cancels the tubes.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- 2. Tubes -->
+  <section class="flow" id="samples">
+    <span class="eyebrow">Workflow 2</span>
+    <h2>A tube's life</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 700 220" role="img" aria-label="A tube goes from to-collect, to collected, to received. Scanning a tube that was never marked collected does both at once. A collected or received tube can be rejected, which creates a replacement tube to collect.">
+          <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+          <rect class="box" x="20" y="60" width="160" height="44" rx="22"/><text class="state" x="100" y="86" text-anchor="middle">TO COLLECT</text>
+          <rect class="box" x="270" y="60" width="160" height="44" rx="22"/><text class="state" x="350" y="86" text-anchor="middle">COLLECTED</text>
+          <rect class="box done" x="520" y="60" width="160" height="44" rx="22"/><text class="state" x="600" y="86" text-anchor="middle">RECEIVED</text>
+          <rect class="box" x="520" y="160" width="160" height="44" rx="22"/><text class="state" x="600" y="186" text-anchor="middle">REJECTED</text>
+          <rect class="box key" x="20" y="160" width="160" height="44" rx="22"/><text class="state" x="100" y="181" text-anchor="middle">NEW TUBE</text><text class="m" x="100" y="196" text-anchor="middle">barcode …02</text>
+          <line class="edge" x1="180" y1="82" x2="268" y2="82" marker-end="url(#a2)"/><text class="el" x="224" y="74" text-anchor="middle">collect</text>
+          <line class="edge" x1="430" y1="82" x2="518" y2="82" marker-end="url(#a2)"/><text class="el" x="474" y="74" text-anchor="middle">scan in lab</text>
+          <path class="edge dash" d="M100,60 C100,14 600,14 600,58" marker-end="url(#a2)"/><text class="el" x="350" y="28" text-anchor="middle">scanned without a collect step: both at once</text>
+          <line class="edge" x1="600" y1="104" x2="600" y2="158" marker-end="url(#a2)"/><text class="el" x="590" y="135" text-anchor="end">reject: haemolysed, clotted…</text>
+          <path class="edge key" d="M520,182 H182" marker-end="url(#a2)"/><text class="el key" x="350" y="174" text-anchor="middle">tests move to a replacement tube</text>
+        </svg>
+      </div>
+      <figcaption>The barcode is the lab number plus a tube number, so a rejected tube is replaced, never reused. Cancelling the order cancels every tube that isn't already rejected.</figcaption>
+    </figure>
+    <div class="notes">
+      <div><h3>Tested</h3><ul>
+        <li>A tube can't be collected twice or rejected before collection.</li>
+        <li>Rejecting clears any results taken from that tube.</li>
+        <li>Another lab can't find or receive our barcodes.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- 3. Results -->
+  <section class="flow" id="results">
+    <span class="eyebrow">Workflow 3</span>
+    <h2>Results and approval</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 860 260" role="img" aria-label="A test moves from awaiting sample, to in the lab, to entered, to submitted, to approved. A pathologist can send a submitted test back. An approved test can be reopened with a reason, which marks the report as amended. A rejected tube sends the test back to awaiting sample.">
+          <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="a3k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip key" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+          <rect class="box" x="20" y="100" width="146" height="44" rx="22"/><text class="state" x="93" y="126" text-anchor="middle">AWAITING SAMPLE</text>
+          <rect class="box" x="193" y="100" width="146" height="44" rx="22"/><text class="state" x="266" y="126" text-anchor="middle">IN LAB</text>
+          <rect class="box" x="366" y="100" width="146" height="44" rx="22"/><text class="state" x="439" y="126" text-anchor="middle">ENTERED</text>
+          <rect class="box key" x="539" y="100" width="146" height="44" rx="22"/><text class="state" x="612" y="126" text-anchor="middle">SUBMITTED</text>
+          <rect class="box done" x="712" y="100" width="128" height="44" rx="22"/><text class="state" x="776" y="126" text-anchor="middle">APPROVED</text>
+          <line class="edge" x1="166" y1="122" x2="191" y2="122" marker-end="url(#a3)"/>
+          <line class="edge" x1="339" y1="122" x2="364" y2="122" marker-end="url(#a3)"/>
+          <line class="edge" x1="512" y1="122" x2="537" y2="122" marker-end="url(#a3)"/>
+          <line class="edge" x1="685" y1="122" x2="710" y2="122" marker-end="url(#a3)"/>
+          <text class="el" x="179" y="92" text-anchor="middle">tube in</text>
+          <text class="el" x="352" y="92" text-anchor="middle">saved</text>
+          <text class="el" x="525" y="92" text-anchor="middle">submit</text>
+          <text class="el" x="697" y="92" text-anchor="middle">approve</text>
+          <text class="role" x="439" y="164" text-anchor="middle">TECHNICIAN</text>
+          <text class="role" x="694" y="164" text-anchor="middle">PATHOLOGIST</text>
+          <path class="edge" d="M612,144 C612,200 439,200 439,146" marker-end="url(#a3)"/><text class="el" x="525" y="214" text-anchor="middle">send back with a note</text>
+          <path class="edge key" d="M776,144 C776,250 439,250 439,146" marker-end="url(#a3k)"/><text class="el key" x="640" y="246" text-anchor="middle">reopen with a reason → report says "amended"</text>
+          <path class="edge dash" d="M439,100 C439,40 93,40 93,98" marker-end="url(#a3)"/><text class="el" x="266" y="52" text-anchor="middle">tube rejected: results cleared, wait for the new tube</text>
+        </svg>
+      </div>
+      <figcaption>Values are flagged against the patient's age- and sex-specific range as they're typed; calculated values (LDL, ratios) fill themselves in. Approved results are locked until reopened.</figcaption>
+    </figure>
+    <div class="notes">
+      <div><h3>Along the way</h3><ul>
+        <li>Each result keeps the range it was reported with, so a later catalog change never alters an old report.</li>
+        <li>The patient's previous result shows beside each value.</li>
+      </ul></div>
+      <div><h3>Tested</h3><ul>
+        <li>Low, high and critical flags; formula results can't be typed over.</li>
+        <li>Technicians can't approve; only submitted tests can be approved.</li>
+        <li>An order with approved results can't be cancelled.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- 4. Reports -->
+  <section class="flow" id="reports">
+    <span class="eyebrow">Workflow 4</span>
+    <h2>Report delivery</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 900 300" role="img" aria-label="Approved tests are rendered into a signed PDF report. Staff can print it. A patient link with a token works for 90 days without sign-in. For WhatsApp, LabOS asks AiSensy to send a template message; AiSensy fetches the PDF from the patient link and delivers it to the patient's WhatsApp.">
+          <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="a4k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip key" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+          <rect class="box" x="20" y="120" width="150" height="60" rx="8"/><text class="t" x="34" y="145">Approved tests</text><text class="s" x="34" y="163">only these print</text>
+          <rect class="box key" x="225" y="120" width="180" height="60" rx="8"/><text class="t" x="239" y="145">Report PDF</text><text class="s" x="239" y="163">A4 · signed · QR code</text>
+          <rect class="box" x="470" y="30" width="180" height="56" rx="8"/><text class="t" x="484" y="53">Print or view</text><text class="s" x="484" y="71">staff, signed in</text>
+          <rect class="box" x="470" y="122" width="180" height="56" rx="8"/><text class="t" x="484" y="145">Patient link</text><text class="m" x="484" y="163">/r/&lt;token&gt; · 90 days</text>
+          <rect class="box" x="470" y="214" width="180" height="56" rx="8"/><text class="t" x="484" y="237">AiSensy</text><text class="s" x="484" y="255">template: patient, lab name</text>
+          <rect class="box" x="705" y="122" width="175" height="56" rx="8"/><text class="t" x="719" y="145">Patient</text><text class="s" x="719" y="163">opens it, no sign-in</text>
+          <rect class="box done" x="705" y="214" width="175" height="56" rx="8"/><text class="t" x="719" y="237">Patient's WhatsApp</text><text class="s" x="719" y="255">message + PDF</text>
+          <line class="edge" x1="170" y1="150" x2="223" y2="150" marker-end="url(#a4)"/><text class="el" x="197" y="142" text-anchor="middle">render</text>
+          <path class="edge" d="M405,140 L437,140 L437,58 L468,58" marker-end="url(#a4)"/>
+          <line class="edge" x1="405" y1="150" x2="468" y2="150" marker-end="url(#a4)"/>
+          <path class="edge key" d="M405,160 L437,160 L437,242 L468,242" marker-end="url(#a4k)"/><text class="el key" x="400" y="232" text-anchor="end">send on WhatsApp</text>
+          <line class="edge" x1="650" y1="150" x2="703" y2="150" marker-end="url(#a4)"/><text class="el" x="676" y="142" text-anchor="middle">opens</text>
+          <line class="edge key" x1="650" y1="242" x2="703" y2="242" marker-end="url(#a4k)"/><text class="el key" x="676" y="234" text-anchor="middle">delivers</text>
+          <line class="edge dash" x1="560" y1="214" x2="560" y2="180" marker-end="url(#a4)"/><text class="el" x="570" y="201">fetches the PDF</text>
+        </svg>
+      </div>
+      <figcaption>AiSensy downloads the PDF from the patient link, so WhatsApp only works once the app is reachable from the internet. Each lab can use its own AiSensy account or the platform's shared one.</figcaption>
+    </figure>
+    <div class="notes">
+      <div><h3>Along the way</h3><ul>
+        <li>If some tests are still pending, the PDF says "Partial report"; the link shows new results as they're approved.</li>
+        <li>Every WhatsApp attempt, sent or failed, is kept on the order.</li>
+      </ul></div>
+      <div><h3>Tested</h3><ul>
+        <li>PDF and link work without sign-in; bad or expired tokens are refused.</li>
+        <li>Sending uses the right AiSensy account, number and template (against a stand-in AiSensy).</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- 6. B2B -->
+  <section class="flow" id="b2b">
+    <span class="eyebrow">Workflow 5</span>
+    <h2>B2B billing cycle</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 880 260" role="img" aria-label="A B2B account has its own rates and credit limit. Orders billed to it cost the patient nothing and are checked against the limit. They wait as not yet invoiced until an invoice is raised for a period. Payments from the account are applied to the oldest invoices first. An invoice can be voided before any payment, which returns its orders to not yet invoiced.">
+          <defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="a6k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip key" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+          <rect class="box" x="20" y="40" width="145" height="62" rx="8"/><text class="t" x="34" y="64">Account</text><text class="s" x="34" y="82">rates · credit limit</text>
+          <rect class="box" x="195" y="40" width="145" height="62" rx="8"/><text class="t" x="209" y="64">Order on account</text><text class="s" x="209" y="82">patient pays ₹0</text>
+          <rect class="box" x="370" y="40" width="145" height="62" rx="8"/><text class="t" x="384" y="64">Not yet invoiced</text><text class="s" x="384" y="82">builds up all month</text>
+          <rect class="box key" x="545" y="40" width="145" height="62" rx="8"/><text class="t" x="559" y="64">Invoice</text><text class="m" x="559" y="82">INV/2026-27/000012</text>
+          <rect class="box done" x="720" y="40" width="140" height="62" rx="8"/><text class="t" x="734" y="64">Paid</text><text class="s" x="734" y="82">fully settled</text>
+          <rect class="box" x="545" y="170" width="145" height="62" rx="8"/><text class="t" x="559" y="194">Account payment</text><text class="s" x="559" y="212">NEFT, UPI, cash</text>
+          <line class="edge" x1="165" y1="71" x2="193" y2="71" marker-end="url(#a6)"/>
+          <line class="edge" x1="340" y1="71" x2="368" y2="71" marker-end="url(#a6)"/>
+          <line class="edge key" x1="515" y1="71" x2="543" y2="71" marker-end="url(#a6k)"/>
+          <line class="edge" x1="690" y1="71" x2="718" y2="71" marker-end="url(#a6)"/>
+          <text class="el" x="267" y="122" text-anchor="middle">refused if over the</text><text class="el" x="267" y="136" text-anchor="middle">credit limit</text>
+          <text class="el key" x="529" y="30" text-anchor="middle">raise for a period</text>
+          <line class="edge" x1="617" y1="170" x2="617" y2="104" marker-end="url(#a6)"/><text class="el" x="627" y="146">applied, oldest invoice first</text>
+          <path class="edge dash" d="M560,102 C560,150 442,150 442,104" marker-end="url(#a6)"/><text class="el" x="430" y="158" text-anchor="end">void (before any payment)</text>
+        </svg>
+      </div>
+      <figcaption>Hospitals, clinics and corporates get their own price list, a credit limit and payment terms. An invoice is due after the account's terms (for example 30 days); the account page shows how overdue anything is.</figcaption>
+    </figure>
+    <div class="notes">
+      <div><h3>Along the way</h3><ul>
+        <li>An invoiced order can't be cancelled until its invoice is voided.</li>
+        <li>Account payments count in the day-end collections.</li>
+      </ul></div>
+      <div><h3>Tested</h3><ul>
+        <li>Account rates, the credit limit, invoicing, voiding and part payments.</li>
+        <li>The same orders can't be invoiced twice; overpaying is refused.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- 7. Sign-in -->
+  <section class="flow" id="signin">
+    <span class="eyebrow">Workflow 6</span>
+    <h2>Sign-in, sessions and passwords</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 900 320" role="img" aria-label="Signing in gives a 15-minute access token and a refresh cookie. When the token expires, the app refreshes it and retries. If the server can't be reached, it keeps retrying instead of signing out. If the refresh cookie is old or revoked, the session ends. Forgot password emails a one-time link that works for 30 minutes; using it signs out every device.">
+          <defs><marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="a7k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip key" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+          <rect class="box" x="20" y="30" width="160" height="58" rx="8"/><text class="t" x="34" y="54">Sign in</text><text class="s" x="34" y="72">email + password</text>
+          <rect class="box" x="240" y="30" width="200" height="58" rx="8"/><text class="t" x="254" y="54">Token + refresh cookie</text><text class="s" x="254" y="72">15 minutes · 30 days</text>
+          <rect class="box done" x="500" y="30" width="160" height="58" rx="8"/><text class="t" x="514" y="54">Use the app</text><text class="s" x="514" y="72">every request checked</text>
+          <rect class="box key" x="500" y="140" width="160" height="58" rx="8"/><text class="t" x="514" y="164">Refresh</text><text class="s" x="514" y="182">cookie rotates each time</text>
+          <rect class="box" x="240" y="140" width="200" height="58" rx="8"/><text class="t" x="254" y="164">Can't reach the server</text><text class="s" x="254" y="182">keeps retrying, stays signed in</text>
+          <rect class="box muted" x="720" y="140" width="160" height="58" rx="8"/><text class="t" x="734" y="164">Session ended</text><text class="s" x="734" y="182">sign in again</text>
+          <line class="edge" x1="180" y1="59" x2="238" y2="59" marker-end="url(#a7)"/>
+          <line class="edge" x1="440" y1="59" x2="498" y2="59" marker-end="url(#a7)"/>
+          <path class="edge" d="M560,88 V138" marker-end="url(#a7)"/><text class="el" x="552" y="118" text-anchor="end">token expired</text>
+          <path class="edge key" d="M610,138 V90" marker-end="url(#a7k)"/><text class="el key" x="618" y="118">new token, retry</text>
+          <line class="edge" x1="500" y1="169" x2="442" y2="169" marker-end="url(#a7)"/><text class="el" x="471" y="161" text-anchor="middle">no network</text>
+          <line class="edge" x1="660" y1="169" x2="718" y2="169" marker-end="url(#a7)"/><text class="el" x="689" y="161" text-anchor="middle">revoked</text>
+          <!-- passwords -->
+          <rect class="box" x="20" y="245" width="160" height="58" rx="8"/><text class="t" x="34" y="269">Forgot password</text><text class="s" x="34" y="287">on the sign-in page</text>
+          <rect class="box" x="240" y="245" width="200" height="58" rx="8"/><text class="t" x="254" y="269">Email with a link</text><text class="s" x="254" y="287">works once, for 30 minutes</text>
+          <rect class="box" x="500" y="245" width="160" height="58" rx="8"/><text class="t" x="514" y="269">New password</text><text class="s" x="514" y="287">8+ characters</text>
+          <rect class="box done" x="720" y="245" width="160" height="58" rx="8"/><text class="t" x="734" y="269">Every device</text><text class="s" x="734" y="287">signed out</text>
+          <line class="edge" x1="180" y1="274" x2="238" y2="274" marker-end="url(#a7)"/>
+          <line class="edge" x1="440" y1="274" x2="498" y2="274" marker-end="url(#a7)"/>
+          <line class="edge" x1="660" y1="274" x2="718" y2="274" marker-end="url(#a7)"/>
+          <line class="edge dash" x1="20" y1="226" x2="880" y2="226"/>
+        </svg>
+      </div>
+      <figcaption>Top: what keeps someone signed in. A dropped connection only shows "Can't reach the server"; it never signs anyone out. Bottom: getting back in after a forgotten password. An owner can also email the link, or set a temporary password that must be changed at next sign-in.</figcaption>
+    </figure>
+    <div class="notes">
+      <div><h3>Tested</h3><ul>
+        <li>Wrong passwords are rate-limited; the reset form never reveals whether an email exists.</li>
+        <li>A replayed old refresh cookie ends the session.</li>
+        <li>Every API route refuses requests without a valid sign-in.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- 8. Access -->
+  <section class="flow" id="access">
+    <span class="eyebrow">Workflow 7</span>
+    <h2>How permissions are worked out</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 900 260" role="img" aria-label="A user's permissions start from their roles' built-in permissions, add or remove the platform admin's changes for that lab, then drop anything in a switched-off module. The result controls both what the server allows on every request and which menus and pages the user sees.">
+          <defs><marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="a8k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip key" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+          <rect class="box" x="20" y="20" width="230" height="58" rx="8"/><text class="t" x="34" y="44">Built-in role permissions</text><text class="s" x="34" y="62">front desk, technician, owner…</text>
+          <rect class="box" x="20" y="100" width="230" height="58" rx="8"/><text class="t" x="34" y="124">Admin's changes for this lab</text><text class="s" x="34" y="142">add or remove per role</text>
+          <rect class="box" x="20" y="180" width="230" height="58" rx="8"/><text class="t" x="34" y="204">Switched-off modules</text><text class="s" x="34" y="222">B2B, WhatsApp, branches</text>
+          <rect class="box key" x="330" y="100" width="230" height="58" rx="8"/><text class="t" x="344" y="124">This user's permissions</text><text class="s" x="344" y="142">all their roles combined</text>
+          <rect class="box done" x="640" y="45" width="240" height="58" rx="8"/><text class="t" x="654" y="69">Server checks each request</text><text class="s" x="654" y="87">no permission → refused (403)</text>
+          <rect class="box done" x="640" y="155" width="240" height="58" rx="8"/><text class="t" x="654" y="179">Menus and pages</text><text class="s" x="654" y="197">hidden, or "you don't have access"</text>
+          <path class="edge" d="M250,49 H290 V118 H328" marker-end="url(#a8)"/><text class="el" x="296" y="80">start</text>
+          <line class="edge" x1="250" y1="129" x2="328" y2="129" marker-end="url(#a8)"/><text class="el" x="289" y="121" text-anchor="middle">+ / −</text>
+          <path class="edge" d="M250,209 H290 V140 H328" marker-end="url(#a8)"/><text class="el" x="296" y="184">−</text>
+          <path class="edge key" d="M560,120 H600 V74 H638" marker-end="url(#a8k)"/>
+          <path class="edge key" d="M560,138 H600 V184 H638" marker-end="url(#a8k)"/>
+          <text class="el key" x="606" y="133">applies at once</text>
+        </svg>
+      </div>
+      <figcaption>The same calculation runs on the server and in the admin console's grid, so what the grid shows is exactly what the lab can do. Changes reach people who are already signed in on their next click.</figcaption>
+    </figure>
+    <div class="notes">
+      <div><h3>Tested</h3><ul>
+        <li>Each of the six roles against every API route: allowed where the role allows, refused everywhere else.</li>
+        <li>Switching a module off, or taking a permission from the owner, takes effect for signed-in users immediately.</li>
+        <li>No lab can see or change another lab's data.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- 9. Platform admin -->
+  <section class="flow" id="admin">
+    <span class="eyebrow">Workflow 8</span>
+    <h2>Platform admin console</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 900 300" role="img" aria-label="A platform admin signs in with a password and a code from an authenticator app, then reaches the console. From there they can change a lab's subscription or suspend it, change a lab's modules, role permissions and limits, or change a user's roles and passwords. Each action needs a reason and is recorded.">
+          <defs><marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+          <rect class="box" x="20" y="24" width="170" height="58" rx="8"/><text class="t" x="34" y="48">Admin sign-in</text><text class="s" x="34" y="66">separate from labs</text>
+          <rect class="box" x="250" y="24" width="190" height="58" rx="8"/><text class="t" x="264" y="48">Code from phone app</text><text class="s" x="264" y="66">or a one-time recovery code</text>
+          <rect class="box key" x="500" y="24" width="170" height="58" rx="8"/><text class="t" x="514" y="48">Console</text><text class="s" x="514" y="66">all labs, all users</text>
+          <line class="edge" x1="190" y1="53" x2="248" y2="53" marker-end="url(#a9)"/>
+          <line class="edge" x1="440" y1="53" x2="498" y2="53" marker-end="url(#a9)"/>
+          <path class="edge" d="M585,82 V108 H145 V138" marker-end="url(#a9)"/>
+          <path class="edge" d="M585,108 V138" marker-end="url(#a9)"/>
+          <path class="edge" d="M585,108 H755 V138" marker-end="url(#a9)"/>
+          <rect class="box" x="20" y="140" width="250" height="58" rx="8"/><text class="t" x="34" y="164">Subscription</text><text class="s" x="34" y="182">plan, end date, suspend</text>
+          <rect class="box" x="460" y="140" width="250" height="58" rx="8"/><text class="t" x="474" y="164">Lab access</text><text class="s" x="474" y="182">modules, role permissions, limits</text>
+          <rect class="box" x="630" y="222" width="250" height="58" rx="8"/><text class="t" x="644" y="246">Any user</text><text class="s" x="644" y="264">roles, password help, disable</text>
+          <path class="edge" d="M755,198 V220" marker-end="url(#a9)"/>
+          <text class="el" x="145" y="222" text-anchor="middle">suspending signs the whole</text><text class="el" x="145" y="236" text-anchor="middle">lab out at once</text>
+          <text class="el" x="400" y="222" text-anchor="middle">every action needs a reason and is</text><text class="el" x="400" y="236" text-anchor="middle">logged in the platform and lab audit logs</text>
+        </svg>
+      </div>
+      <figcaption>The console is for the team running the service. Support admins can look but not change anything; only super admins make changes. Two-step sign-in is required on a live server.</figcaption>
+    </figure>
+    <div class="notes">
+      <div><h3>Tested</h3><ul>
+        <li>Lab tokens don't work in the console and console tokens don't work in labs.</li>
+        <li>Codes can't be reused; recovery codes work once.</li>
+        <li>A lab always keeps an active owner.</li>
+      </ul></div>
+    </div>
+  </section>
+</div>

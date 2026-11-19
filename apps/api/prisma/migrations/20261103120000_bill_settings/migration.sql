@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "Tenant" ADD COLUMN     "billCustom" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "billFooterHeightMm" INTEGER NOT NULL DEFAULT 20,
+ADD COLUMN     "billFooterImageId" UUID,
+ADD COLUMN     "billHeaderHeightMm" INTEGER NOT NULL DEFAULT 35,
+ADD COLUMN     "billHeaderImageId" UUID,
+ADD COLUMN     "billHeading" TEXT NOT NULL DEFAULT 'BILL OF SUPPLY',
+ADD COLUMN     "billSize" TEXT NOT NULL DEFAULT 'A4';
