@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@lms/shared"],
   // Docker builds a self-contained server (deploy/Dockerfile.web); local `next start` doesn't need it.
   ...(process.env.NEXT_STANDALONE === "1" ? { output: "standalone", outputFileTracingRoot: join(__dirname, "../..") } : {}),
+  // Shared hosting caps threads per account: build with a single worker.
+  experimental: { cpus: 1, workerThreads: false, staticGenerationMaxConcurrency: 1 },
   poweredByHeader: false,
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API_URL}/api/:path*` }];
